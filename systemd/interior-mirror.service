@@ -1,0 +1,22 @@
+[Unit]
+Description=Interior Mirror (RT app)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/home/pi/interior-mirror/build/interior_mirror
+WorkingDirectory=/home/pi/interior-mirror
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=90
+CPUAffinity=2
+LimitRTPRIO=99
+LimitMEMLOCK=infinity
+CapabilityBoundingSet=CAP_SYS_NICE CAP_SYS_RESOURCE
+AmbientCapabilities=CAP_SYS_NICE CAP_SYS_RESOURCE
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
