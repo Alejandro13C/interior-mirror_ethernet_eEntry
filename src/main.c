@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <errno.h>
-#include <time.h>
 
 static void pin_to_cpu(int cpu){
   cpu_set_t set; CPU_ZERO(&set); CPU_SET(cpu, &set);
@@ -22,15 +21,27 @@ int main(void){
   if (sched_setscheduler(0, SCHED_FIFO, &sp) != 0)
     perror("sched_setscheduler");
 
-  pin_to_cpu(2); // ajusta core si quieres
+  pin_to_cpu(2); // ajusta si quieres otro core
 
-  fprintf(stdout, "[interior-mirror] proceso RT iniciado.\n");
-  fflush(stdout);
+  // Pipeline GStreamer (sin X): filesrc .sdp -> sdpdemux -> jitter -> depay -> parse -> dec -> sink
+  const char *gst = "/usr/bin/gst-launch-1.0";
+  const char *sdp = "/home/pi/interior-mirror/config/stream.sdp";
 
-  for(;;){
-    struct timespec ts = {0, 20*1000*1000}; // 20 ms
-    nanosleep(&ts, NULL);
-    // Aquí añadiremos el receptor (mpv/gstreamer)
-  }
-  return 0;
+  // Decodificador: v4l2h264dec (si disponible) o avdec_h264 como fallback
+  // Sink: kmssink (DRM/KMS, pantalla completa sin X). Si no te vale, usa autovideosink.
+  execlp(gst, gst,
+    "filesrc", "location", sdp, "!",
+    "sdpdemux", "!",
+    "rtpjitterbuffer", "latency=50", "!",   // prueba 30..100 para latencia/estabilidad
+    "rtph264depay", "!", "h264parse", "!",
+    "v4l2h264dec", "!", "kmssink", "sync=false", (char*)NULL
+  );
+
+  // Si fallara v4l2h264dec/kmssink, prueba esta alternativa:
+  // execlp(gst, gst, "filesrc", "location", sdp, "!", "sdpdemux", "!",
+  //   "rtpjitterbuffer", "latency=50", "!", "rtph264depay", "!", "h264parse", "!",
+  //   "avdec_h264", "!", "autovideosink", "sync=false", (char*)NULL);
+
+  perror("exec gst-launch-1.0");
+  return 1;
 }
