@@ -1,9 +1,6 @@
-// rtp_viewer.c — Recibe RTP (UDP), muestra con GStreamer y permite “procesar” paquetes RTP.
+// rtp_viewer.c — Recibe RTP (UDP) y muestra con GStreamer.
 // Uso:
-//   ./rtp_viewer <puerto> <encoding> <pt> <clockrate> [latency_ms] [--probe]
-// Ejemplos:
-//   ./rtp_viewer 5004 H264 96 90000 100 --probe
-//   ./rtp_viewer 5004 H265 96 90000 200
+//   ./rtp_viewer <puerto> <encoding(H264|H265|OPUS|PCMU|...)> <pt> <clockrate> [latency_ms] [--probe]
 #define _POSIX_C_SOURCE 200809L
 #include <gst/gst.h>
 #include <gst/app/app.h>
@@ -12,12 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct {
-  gboolean probe_enabled;
-} AppCtx;
-
 static GstFlowReturn on_new_sample(GstAppSink *appsink, gpointer user_data) {
-  // Punto para procesar frames (opcional). Ahora mismo solo consume.
   GstSample *s = gst_app_sink_pull_sample(appsink);
   if (s) gst_sample_unref(s);
   return GST_FLOW_OK;
@@ -45,6 +37,7 @@ int main(int argc, char **argv) {
     g_printerr("Uso: %s <puerto> <encoding(H264|H265|OPUS|PCMU|...)> <pt> <clockrate> [latency_ms=100] [--probe]\n", argv[0]);
     return 1;
   }
+
   int port = atoi(argv[1]);
   const char *encoding = argv[2];
   int payload = atoi(argv[3]);
@@ -54,7 +47,6 @@ int main(int argc, char **argv) {
 
   gst_init(&argc, &argv);
 
-  // Seleccionar depay/decoder según encoding
   const char *depay = NULL;
   const char *decoder = NULL;
   gboolean is_video = FALSE;
@@ -64,23 +56,20 @@ int main(int argc, char **argv) {
   } else if (g_ascii_strcasecmp(encoding, "H265") == 0 || g_ascii_strcasecmp(encoding, "HEVC") == 0) {
     depay = "rtph265depay"; decoder = "avdec_h265"; is_video = TRUE;
   } else if (g_ascii_strcasecmp(encoding, "OPUS") == 0) {
-    depay = "rtpopusdepay"; decoder = "opusdec";
-  } else if (g_ascii_strcasecmp(encoding, "PCMU") == 0 || g_ascii_strcasecmp(encoding, "PCMA") == 0) {
-    depay = (g_ascii_strcasecmp(encoding, "PCMU")==0) ? "rtppcmudepay" : "rtppcmadepay";
-    decoder = "avdec_pcm_alaw"; // para PCMA; para PCMU: avdec_pcm_mulaw. (autoplug con decodebin también vale)
+    depay = "rtpopusdepay"; decoder = "opusdec"; is_video = FALSE;
+  } else if (g_ascii_strcasecmp(encoding, "PCMU") == 0) {
+    depay = "rtppcmudepay"; decoder = "avdec_pcm_mulaw"; is_video = FALSE;
+  } else if (g_ascii_strcasecmp(encoding, "PCMA") == 0) {
+    depay = "rtppcmadepay"; decoder = "avdec_pcm_alaw"; is_video = FALSE;
   } else {
-    g_printerr("Encoding no soportado directamente: %s\n", encoding);
-    g_printerr("Prueba H264/H265/OPUS o usa decodebin en tu propia variante.\n");
+    g_printerr("Encoding no soportado: %s\n", encoding);
     return 1;
   }
 
-  // Construcción de caps de RTP
   gchar *caps_str = g_strdup_printf(
     "application/x-rtp, media=%s, encoding-name=%s, payload=%d, clock-rate=%d",
     is_video ? "video" : "audio", encoding, payload, clockrate);
 
-  // Pipeline con tee: rama A → pantalla; rama B → appsink (procesamiento de frames)
-  // Nombramos elementos para enlazar y para el probe.
   gchar *pipeline_desc = g_strdup_printf(
     "udpsrc name=src port=%d caps=\"%s\" ! "
     "rtpjitterbuffer name=jbuf latency=%d ! %s name=depay ! tee name=t "
@@ -88,7 +77,7 @@ int main(int argc, char **argv) {
     "t. ! queue ! appsink name=proc sync=false drop=true max-buffers=8",
     port, caps_str, latency,
     depay,
-    (is_video ? "h264parse" : "queue"),   // parse para H264/H265; para audio basta queue
+    (is_video ? "h264parse" : "queue"),
     decoder,
     (is_video ? "videoconvert ! autovideosink" : "autoaudiosink")
   );
@@ -102,12 +91,10 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // Config appsink (callback de frames)
   GstElement *appsink = gst_bin_get_by_name(GST_BIN(pipeline), "proc");
   gst_app_sink_set_emit_signals((GstAppSink*)appsink, TRUE);
   g_signal_connect(appsink, "new-sample", G_CALLBACK(on_new_sample), NULL);
 
-  // (Opcional) pad probe para inspeccionar paquetes RTP antes del depay
   if (want_probe) {
     GstElement *depay_el = gst_bin_get_by_name(GST_BIN(pipeline), "depay");
     GstPad *sinkpad = gst_element_get_static_pad(depay_el, "sink");
@@ -116,15 +103,45 @@ int main(int argc, char **argv) {
     gst_object_unref(depay_el);
   }
 
-  // Play
   gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
-  // Bucle de bus (CTRL+C para salir)
   GstBus *bus = gst_element_get_bus(pipeline);
-  while (1) {
-    GstMessage *msg = gst_bus_timed_pop_filtered(bus, GST_CLOCK_TIME_NONE,
+  gboolean running = TRUE;
+  while (running) {
+    GstMessage *msg = gst_bus_timed_pop_filtered(
+        bus, GST_CLOCK_TIME_NONE,
         GST_MESSAGE_ERROR | GST_MESSAGE_EOS | GST_MESSAGE_STATE_CHANGED);
+
     if (!msg) continue;
+
     switch (GST_MESSAGE_TYPE(msg)) {
       case GST_MESSAGE_ERROR: {
-        GError *e=NULL; gchar *dbg=NULL; gst_message_parse_error(msg, &e, &
+        GError *e = NULL; gchar *dbg = NULL;
+        gst_message_parse_error(msg, &e, &dbg);
+        g_printerr("ERROR: %s\n", e ? e->message : "desconocido");
+        if (dbg) g_printerr("DBG: %s\n", dbg);
+        if (e) g_error_free(e);
+        g_free(dbg);
+        gst_message_unref(msg);
+        running = FALSE;
+        break;
+      }
+      case GST_MESSAGE_EOS:
+        gst_message_unref(msg);
+        running = FALSE;
+        break;
+      case GST_MESSAGE_STATE_CHANGED:
+      default:
+        gst_message_unref(msg);
+        break;
+    }
+  }
+
+  gst_element_set_state(pipeline, GST_STATE_NULL);
+  gst_object_unref(bus);
+  gst_object_unref(pipeline);
+  if (appsink) gst_object_unref(appsink);
+  g_free(caps_str);
+  g_free(pipeline_desc);
+  return 0;
+}
