@@ -1,0 +1,38 @@
+Vehicle detection uses NanoDet-Plus-m (RangiLyu/NanoDet), Apache-2.0.
+Official release: https://github.com/RangiLyu/nanodet/releases/tag/v1.0.0-alpha-1
+Pinned model URL and SHA-256 values: tools/fetch-detector.py.
+The 416-trained weights are evaluated at reduced input size 256 on this Pi.
+See LICENSE-NanoDet.
+
+Inference engine: Tencent/ncnn 20250916, BSD-3-Clause.
+Pinned revision and source hash: tools/build-ncnn.py.
+Tensor names and decode reference: Tencent/ncnn examples/nanodet.cpp
+Copyright 2020 Tencent. See LICENSE-NCNN.
+NanoDet-Plus grid/combined output: RangiLyu/nanodet demo_ncnn/nanodet.cpp
+https://github.com/RangiLyu/nanodet/blob/main/demo_ncnn/nanodet.cpp
+
+Our adapter filters COCO classes car, motorcycle, bus and truck.
+Model weights and NCNN build products are excluded from Git.
+
+Optional PC comparisons use Ultralytics YOLOv5n/s v7.0 ONNX weights, GPL-3.0.
+Source: https://github.com/ultralytics/yolov5/releases/tag/v7.0
+See LICENSE-YOLOv5. URLs and file hashes: tools/fetch-video-model.py.
+YOLO11n comparison: Ultralytics weights converted to ONNX by webnn/yolo11n,
+pinned Hugging Face revision in tools/fetch-video-model.py; AGPL-3.0.
+See LICENSE-YOLO11 and https://huggingface.co/webnn/yolo11n.
+The PC ONNX adapter uses RGB/255 letterboxing, decoded xywh boxes and NMS;
+the v5 score is objectness times class score; YOLO11 has no objectness column.
+YOLOv5n also has a native Raspberry Pi adapter in src/yolov5.hpp.
+Its NCNN export retains the exact studied v7.0 weights, promotes stored FP16
+constants to FP32, and lowers SiLU to x * sigmoid(x). Export procedure and
+source/artifact hashes: tools/export-yolov5-ncnn.py and models/yolov5n-ncnn.json.
+Other comparison candidates have not been deployed to the Raspberry Pi.
+
+Additional offline comparisons: Ultralytics YOLO26n, AGPL-3.0, using the
+prithivMLmods/YOLO26-ONNX export at pinned revision
+c526dae7a5a5b4f1d79d704903b4406011da2716 (model metadata: Ultralytics 8.4.100,
+2026-07-18, end2end=True). License: https://www.ultralytics.com/license.
+PP-PicoDet XS/S 320 LCNet: official PaddlePaddle/PaddleDetection ONNX exports,
+Apache-2.0. https://github.com/PaddlePaddle/PaddleDetection
+Sources, sizes and SHA-256 hashes: tools/fetch-modern-models.py.
+These additional comparisons are PC-only; no Pi deployment is implied.

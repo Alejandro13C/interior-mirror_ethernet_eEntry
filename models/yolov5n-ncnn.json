@@ -1,0 +1,51 @@
+{
+  "source": "https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5n.onnx",
+  "source_sha256": "04f0e55c26f58d17145b36045780fe1250d5bd2187543e11568e5141d05b3262",
+  "license": "GPL-3.0",
+  "onnx_version": "1.23.2",
+  "pnnx_wheel": "20261020",
+  "pnnx_executable_sha256": "4db234cb90a27dc15e04e0d0edf5706c7a488ab8e6235cf8c146c6ec80fd9355",
+  "transformation": "Original FP16 constants promoted losslessly to FP32; extract three pre-sigmoid Conv heads; original decode/NMS implemented in src/yolov5.hpp. No training or quantization.",
+  "input": "in0, RGB/255 letterboxed square",
+  "outputs": [
+    "out0",
+    "out1",
+    "out2"
+  ],
+  "strides": [
+    8,
+    16,
+    32
+  ],
+  "anchors": [
+    [
+      10,
+      13,
+      16,
+      30,
+      33,
+      23
+    ],
+    [
+      30,
+      61,
+      62,
+      45,
+      59,
+      119
+    ],
+    [
+      116,
+      90,
+      156,
+      198,
+      373,
+      326
+    ]
+  ],
+  "artifacts": {
+    "param": "117c4ed8151217b67612aa3ae9948321dbaca977bb603266a0014d39f6471c28",
+    "bin": "0f5dc13935fce2c513f2d38b8227f5181b560c33214e19b18a6ce4443fae9804"
+  },
+  "silu_lowering": "Swish(x) = x * sigmoid(x), using existing NCNN Split/Sigmoid/BinaryOp layers; weights unchanged."
+}

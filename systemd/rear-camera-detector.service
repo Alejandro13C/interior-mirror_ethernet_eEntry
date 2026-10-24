@@ -1,0 +1,38 @@
+[Unit]
+Description=Rear camera vehicle detection worker
+After=rear-camera.service
+PartOf=rear-camera.service
+ConditionPathExists=/home/alejandro/Rear_camera/build/vehicle-detector
+
+[Service]
+Type=simple
+User=alejandro
+Group=alejandro
+WorkingDirectory=/home/alejandro/Rear_camera
+EnvironmentFile=-/etc/default/rear-camera
+Environment=OMP_WAIT_POLICY=PASSIVE MALLOC_ARENA_MAX=2
+RuntimeDirectory=rear-camera-detector
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=restart
+ExecStart=/home/alejandro/Rear_camera/build/vehicle-detector
+Restart=on-failure
+RestartSec=2
+Nice=10
+CPUAffinity=2 3
+CPUQuota=200%
+CPUWeight=20
+MemoryHigh=140M
+MemoryMax=192M
+# Fallback on Pi images booted with cgroup_disable=memory.
+LimitAS=256M
+TimeoutStopSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+RestrictAddressFamilies=AF_UNIX
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=rear-camera.service

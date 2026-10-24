@@ -1,0 +1,29 @@
+[Unit]
+Description=Retrovisor digital RTP con decodificacion H.264 por hardware
+After=systemd-udev-trigger.service
+Conflicts=getty@tty7.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=alejandro
+Group=alejandro
+SupplementaryGroups=video render
+WorkingDirectory=/home/alejandro/Rear_camera
+EnvironmentFile=-/etc/default/rear-camera
+ExecStartPre=+/usr/bin/bash /home/alejandro/Rear_camera/display-console.sh
+ExecStart=/usr/bin/bash /home/alejandro/Rear_camera/run-pi.sh
+ExecStopPost=+/usr/bin/bash /home/alejandro/Rear_camera/display-console.sh
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
+Restart=always
+RestartSec=1
+TimeoutStopSec=5
+KillMode=control-group
+CPUAccounting=true
+CPUAffinity=0 1
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
