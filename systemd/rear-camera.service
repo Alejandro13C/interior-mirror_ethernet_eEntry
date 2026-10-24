@@ -11,6 +11,7 @@ Group=alejandro
 SupplementaryGroups=video render
 WorkingDirectory=/home/alejandro/Rear_camera
 EnvironmentFile=-/etc/default/rear-camera
+EnvironmentFile=-/etc/default/rear-camera-markers
 ExecStartPre=+/usr/bin/bash /home/alejandro/Rear_camera/display-console.sh
 ExecStart=/usr/bin/bash /home/alejandro/Rear_camera/run-pi.sh
 ExecStopPost=+/usr/bin/bash /home/alejandro/Rear_camera/display-console.sh

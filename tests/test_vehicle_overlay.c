@@ -10,19 +10,37 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+static bool colored;
 static bool marked(GstSample *sample) {
     GstVideoInfo info;GstVideoFrame frame;
     assert(sample && gst_video_info_from_caps(&info,gst_sample_get_caps(sample)));
     assert(gst_video_frame_map(&frame,&info,gst_sample_get_buffer(sample),GST_MAP_READ));
     const guint8 *y=GST_VIDEO_FRAME_PLANE_DATA(&frame,0);
     int stride=GST_VIDEO_FRAME_PLANE_STRIDE(&frame,0);bool yes=false;
-    for(int row=0;row<info.height;++row)for(int x=0;x<info.width;++x)if(y[row*stride+x]==235) {
+    for(int row=0;row<info.height;++row)for(int x=0;x<info.width;++x)if(y[row*stride+x]>32) {
         // Expected anchor: centre x=.45*800, top y=.4*480 minus four pixels.
-        assert(x>=352 && x<=368 && row>=170 && row<=186);yes=true;
+        if(colored)assert(x>=349 && x<=371 && row>=164 && row<=186);
+        else assert(x>=352 && x<=368 && row>=170 && row<=186);
+        yes=true;
+    }
+    if(yes) {
+        const guint8 *u=GST_VIDEO_FRAME_PLANE_DATA(&frame,1);
+        const guint8 *v=GST_VIDEO_FRAME_PLANE_DATA(&frame,2);
+        int uv=u[87*GST_VIDEO_FRAME_PLANE_STRIDE(&frame,1)+180];
+        int vv=v[87*GST_VIDEO_FRAME_PLANE_STRIDE(&frame,2)+180];
+        if(colored)assert(uv<128 && vv>128); // Yellow fill has real chroma.
+        else assert(uv==128 && vv==128);
     }
     gst_video_frame_unmap(&frame);return yes;
 }
 int main(int argc,char **argv) {
+    colored=argc==2 && !strcmp(argv[1],"--colored");
+    g_unsetenv("CAMERA_MARKER_FAR_WIDTH");g_unsetenv("CAMERA_MARKER_NEAR_WIDTH");
+    if(colored) {
+        // Synthetic scale for rendering only; not a physical calibration.
+        g_setenv("CAMERA_MARKER_FAR_WIDTH","0.1",TRUE);
+        g_setenv("CAMERA_MARKER_NEAR_WIDTH","0.5",TRUE);
+    }
     gst_init(&argc,&argv);assert(camera_vehicles_register());
     gchar *dir=g_dir_make_tmp("rear-camera-overlay-test-XXXXXX",NULL);assert(dir);
     g_setenv("CAMERA_DETECTOR_DIR",dir,TRUE);

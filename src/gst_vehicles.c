@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "gst_vehicles.h"
 #include "vehicle_protocol.h"
+#include "vehicle_marker.h"
 #include <gst/video/gstvideofilter.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -17,6 +18,7 @@ typedef struct {
     uint64_t next_try,last_send,sequence,sent,dropped,drawn,rejected,last_result_ns;
     CameraAIFrame *frame;
     CameraAIResults result;
+    float far_width,near_width;
     guint16 mx[3][CAMERA_AI_WIDTH],my[3][CAMERA_AI_HEIGHT];
 } CameraVehicles;
 typedef struct {GstVideoFilterClass parent;} CameraVehiclesClass;
@@ -36,6 +38,20 @@ static void open_socket(CameraVehicles *self,uint64_t now) {
 }
 static gboolean start(GstBaseTransform *base) {
     CameraVehicles *s=(CameraVehicles *)base;
+    const char *far=g_getenv("CAMERA_MARKER_FAR_WIDTH");
+    const char *near=g_getenv("CAMERA_MARKER_NEAR_WIDTH");
+    s->far_width=s->near_width=0;
+    if(far || near) {
+        char *end_far=NULL,*end_near=NULL;
+        float f=far?strtof(far,&end_far):0,n=near?strtof(near,&end_near):0;
+        if(!far || !near || end_far==far || end_near==near || *end_far || *end_near ||
+           !isfinite(f) || !isfinite(n) || f<=0 || n<=f || n>=1) {
+            g_printerr("Invalid marker width calibration: require 0 < FAR < NEAR < 1\n");
+            return FALSE;
+        }
+        s->far_width=f;s->near_width=n;
+        g_printerr("Experimental apparent-width markers enabled; no distance or risk measurement\n");
+    }
     const char *dir=g_getenv("CAMERA_DETECTOR_DIR");if(!dir)dir="/run/rear-camera-detector";
     if(strlen(dir)+16>=sizeof s->local)return FALSE;
     snprintf(s->local,sizeof s->local,"%s/video.sock",dir);
@@ -63,20 +79,28 @@ static gboolean set_info(GstVideoFilter *filter,GstCaps *ic,GstVideoInfo *in,Gst
     }
     return TRUE;
 }
-static void pixel(GstVideoFrame *f,int x,int y,guint8 luma) {
+static void pixel(GstVideoFrame *f,int x,int y,const guint8 yuv[3]) {
     if(x<0 || y<0 || x>=GST_VIDEO_FRAME_WIDTH(f) || y>=GST_VIDEO_FRAME_HEIGHT(f))return;
     guint8 *p=GST_VIDEO_FRAME_PLANE_DATA(f,0);
-    p[y*GST_VIDEO_FRAME_PLANE_STRIDE(f,0)+x]=luma;
+    p[y*GST_VIDEO_FRAME_PLANE_STRIDE(f,0)+x]=yuv[0];
     for(int plane=1;plane<3;++plane) {
-        p=GST_VIDEO_FRAME_PLANE_DATA(f,plane);p[(y/2)*GST_VIDEO_FRAME_PLANE_STRIDE(f,plane)+x/2]=128;
+        p=GST_VIDEO_FRAME_PLANE_DATA(f,plane);p[(y/2)*GST_VIDEO_FRAME_PLANE_STRIDE(f,plane)+x/2]=yuv[plane];
     }
 }
-static void triangle(GstVideoFrame *f,int cx,int tip) {
-    /* Downward white triangle, black outline. No distance/severity colour. */
-    for(int y=0;y<=20;++y) {
-        int half=(20-y)/2;
-        for(int x=-half;x<=half;++x)pixel(f,cx+x,tip-20+y,
-            (y<2 || abs(x)>=half-1)?16:235);
+static void triangle(GstVideoFrame *f,int cx,int tip,CameraMarker marker) {
+    bool full=f->info.colorimetry.range==GST_VIDEO_COLOR_RANGE_0_255;
+    bool bt709=f->info.colorimetry.matrix==GST_VIDEO_COLOR_MATRIX_BT709;
+    float kr=bt709?.2126f:.299f,kb=bt709?.0722f:.114f;
+    float r=marker.r/255.f,g=marker.g/255.f,b=marker.b/255.f;
+    float luma=kr*r+(1-kr-kb)*g+kb*b;
+    guint8 fill[3]={(guint8)lroundf((full?0:16)+(full?255:219)*luma),
+        (guint8)CLAMP(lroundf(128+(full?255:224)*(b-luma)/(2*(1-kb))),0,255),
+        (guint8)CLAMP(lroundf(128+(full?255:224)*(r-luma)/(2*(1-kr))),0,255)};
+    const guint8 outline[3]={full?0:16,128,128};
+    for(int y=0;y<=marker.height;++y) {
+        int half=(marker.height-y)/2;
+        for(int x=-half;x<=half;++x)pixel(f,cx+x,tip-marker.height+y,
+            (y<2 || abs(x)>=half-1)?outline:fill);
     }
 }
 static GstFlowReturn transform(GstVideoFilter *filter,GstVideoFrame *frame) {
@@ -146,8 +170,11 @@ static GstFlowReturn transform(GstVideoFilter *filter,GstVideoFrame *frame) {
             camera_vehicle_anchor(v,captured>s->result.captured_ns?captured-s->result.captured_ns:0,&x,&y);
             int cx=(int)(x*GST_VIDEO_FRAME_WIDTH(frame));
             int tip=(int)(y*GST_VIDEO_FRAME_HEIGHT(frame))-4;
-            triangle(frame,CLAMP(cx,12,GST_VIDEO_FRAME_WIDTH(frame)-13),
-                     CLAMP(tip,22,GST_VIDEO_FRAME_HEIGHT(frame)-1));
+            CameraMarker marker=camera_vehicle_marker(v,s->far_width,s->near_width);
+            marker.height=MIN(marker.height,MIN(GST_VIDEO_FRAME_WIDTH(frame)-6,GST_VIDEO_FRAME_HEIGHT(frame)-3));
+            int margin=marker.height/2+2;
+            triangle(frame,CLAMP(cx,margin,GST_VIDEO_FRAME_WIDTH(frame)-margin-1),
+                     CLAMP(tip,marker.height+2,GST_VIDEO_FRAME_HEIGHT(frame)-1),marker);
         }
         if(s->result.count)s->drawn++;
     }
@@ -160,7 +187,7 @@ static void camera_vehicles_class_init(CameraVehiclesClass *klass) {
     gst_element_class_add_pad_template(element,gst_pad_template_new("src",GST_PAD_SRC,GST_PAD_ALWAYS,caps));
     gst_caps_unref(caps);
     gst_element_class_set_static_metadata(element,"Vehicle overlay","Filter/Video",
-        "Nonblocking latest-image export and expiring neutral vehicle triangles","Rear Camera");
+        "Nonblocking image export and expiring vehicle triangles with optional apparent-width styling","Rear Camera");
     GST_BASE_TRANSFORM_CLASS(klass)->start=start;GST_BASE_TRANSFORM_CLASS(klass)->stop=stop;
     GST_VIDEO_FILTER_CLASS(klass)->set_info=set_info;
     GST_VIDEO_FILTER_CLASS(klass)->transform_frame_ip=transform;

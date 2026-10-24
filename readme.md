@@ -66,6 +66,8 @@ Boot startup, hardware video, mirror/rotation and recovery after a process failu
 
 Experimental Panini at 130° and optimized YOLOv5n are active on the Pi 3A+. Lens calibration, detection accuracy, automotive power and track validation remain pending. See the [plan](plan.md), [projection model](calibration/panini.md) and [test results](validation.md). Reported timing excludes camera encoding and panel refresh.
 
+The provisional apparent-width color/size profile was deployed on 24 October 2026. Native rendering tests passed on the Pi; live measurements are in `comparisons/marker-calibration/pi-deployment/`. Video remains below the camera's 25 fps with damaged and late frames; real-car accuracy and physical distance calibration remain pending.
+
 ## Optional vehicle detection
 
 A separate C++/NCNN worker runs YOLOv5n with two CPU threads and rectangular letterboxing (320×192 for the 416×250 landscape input). It removes unused square padding without reducing the resized scene. At most one image is in flight, up to three per second, preventing a backlog. Video uses CPU cores 0–1; inference uses 2–3. The Pi 3A+ profile uses less detail than the 640-pixel PC comparison. Video never waits for inference. White triangles require two matching observations within 750 ms, expire after 750 ms and use bounded motion prediction to compensate analysis delay. An empty observation retains existing marks only until their original expiry. There is no distance measurement or collision warning. This is an unvalidated prototype.
@@ -102,6 +104,17 @@ Set `CAMERA_DETECTION=1` in `/etc/default/rear-camera` and restart `rear-camera`
 
 `make test-video` checks the Panini filter and marker rendering/expiration. `make test-capture CAPTURE=/path/to/reference.pcap` additionally checks the original known capture fixture.
 
+Experimental marker styling uses `CAMERA_MARKER_FAR_WIDTH` and `CAMERA_MARKER_NEAR_WIDTH`: car-box width / full image width, requiring `0 < FAR < NEAR < 1`. Apparent width continuously changes green/16 px → yellow/26 px → red/36 px; other classes and edge-clipped boxes remain white. Unset endpoints preserve white 20-pixel triangles. This is an apparent-size cue, not metres, approach speed or collision risk. [Provisional values](calibration/marker-widths.defaults) come from 1,956 confirmed car boxes sampled at 1 Hz in six racing videos, using the median of their per-video 10th/90th percentiles. They have no measured distances or validated transfer to Ficosa/Panini. After final mounting, replace both values and check different cars, lanes and orientations.
+
+After rebuilding and installing the updated video service, load the provisional profile on the Pi:
+
+```bash
+sudo cp calibration/marker-widths.defaults /etc/default/rear-camera-markers
+sudo systemctl restart rear-camera
+```
+
+Edit those two values in `/etc/default/rear-camera-markers` and restart to recalibrate; remove that file (and any marker variables in `/etc/default/rear-camera`) to restore white markers. Replay and refit the saved YOLOv5n640 study without Python packages using `make build/liboffline-tracking.so` then `python3 tools/calibrate-markers.py --render`. The tool finds the bundled FFmpeg or accepts `--ffmpeg`; `--far-width` and `--near-width` override the fit. It writes six verified previews and `comparisons/marker-calibration/index.html`, plus JSON measurements. These are offline PC previews with saved detections, not Pi320 accuracy or live timing tests. `make test-video` checks neutral and colored drawing, confirmation and expiration using synthetic data.
+
 `make test-detector IMAGE=/path/to/street.png` checks both car boxes in the [OpenCV reference image](https://raw.githubusercontent.com/opencv/opencv_extra/4.x/testdata/dnn/street.png). This optional NanoDet fallback test uses the official 416-trained weights at reduced input size; it does not test YOLOv5n quality.
 
 ## PC video diagnostic
@@ -128,4 +141,4 @@ This is an offline PC quality test with four OpenCV CPU threads, not the Pi timi
 
 Detector quality is evaluated on real racing videos; the selected 320-pixel Pi profile still needs a separate quality evaluation. See the [CPU/model study](detector-study.md) for measured timings, RAM, limitations and triangle-only comparisons.
 
-[Full-video NanoDet416 evaluation](full-video-results.md): all 38,850 frames from six racing clips, with triangle-only outputs and reviewed failure examples.
+[Full-video NanoDet416 evaluation](comparisons/old/nanodet416_all-frames_6-videos/): all 38,850 frames from six racing clips, with triangle-only outputs and reviewed failure examples.

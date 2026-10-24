@@ -16,13 +16,13 @@ all: build/rear-camera
 build:
 	mkdir -p $@
 
-build/rear-camera: src/rear_camera.c src/camera_rtp.c src/camera_rtp.h src/panini.c src/panini.h src/gst_panini.c src/gst_panini.h src/gst_vehicles.c src/gst_vehicles.h src/vehicle_protocol.h | build
+build/rear-camera: src/rear_camera.c src/camera_rtp.c src/camera_rtp.h src/panini.c src/panini.h src/gst_panini.c src/gst_panini.h src/gst_vehicles.c src/gst_vehicles.h src/vehicle_protocol.h src/vehicle_marker.h | build
 	$(CC) $(CFLAGS) $(WARN) $$(pkg-config --cflags $(GST)) -Isrc src/rear_camera.c src/camera_rtp.c src/panini.c src/gst_panini.c src/gst_vehicles.c -o $@ $$(pkg-config --libs $(GST)) -lm
 
 build/vehicle_tracking.o: src/vehicle_tracking.c src/vehicle_tracking.h src/vehicle_protocol.h | build
 	$(CC) $(CFLAGS) $(WARN) -Isrc -c src/vehicle_tracking.c -o $@
 
-build/liboffline-tracking.so: tools/offline_tracking.c src/vehicle_tracking.c src/vehicle_tracking.h src/vehicle_protocol.h | build
+build/liboffline-tracking.so: tools/offline_tracking.c src/vehicle_tracking.c src/vehicle_tracking.h src/vehicle_protocol.h src/vehicle_marker.h | build
 	$(CC) $(CFLAGS) $(WARN) -fPIC -shared -Isrc tools/offline_tracking.c src/vehicle_tracking.c -o $@ -lm
 
 build/vehicle-detector: src/vehicle_detector.cpp src/nanodet.hpp src/yolov5.hpp src/vehicle_protocol.h build/vehicle_tracking.o $(NCNN)/lib/libncnn.a | build
@@ -61,17 +61,23 @@ test-capture: build/test-rtp
 test-video: build/test-video-panini build/test-vehicle-overlay
 	./build/test-video-panini
 	./build/test-vehicle-overlay
+	./build/test-vehicle-overlay --colored
 
 build/test-vehicles: tests/test_vehicles.c src/vehicle_tracking.c src/vehicle_tracking.h src/vehicle_protocol.h | build
 	$(CC) $(CFLAGS) $(WARN) -Isrc tests/test_vehicles.c src/vehicle_tracking.c -o $@ -lm
 
-build/test-vehicle-overlay: tests/test_vehicle_overlay.c src/gst_vehicles.c src/gst_vehicles.h src/vehicle_protocol.h | build
+build/test-vehicle-overlay: tests/test_vehicle_overlay.c src/gst_vehicles.c src/gst_vehicles.h src/vehicle_protocol.h src/vehicle_marker.h | build
 	$(CC) $(CFLAGS) $(WARN) $$(pkg-config --cflags $(GST)) -Isrc tests/test_vehicle_overlay.c src/gst_vehicles.c -o $@ $$(pkg-config --libs $(GST)) -lm
 
-test: build/test-rtp build/test-panini build/test-vehicles
+build/test-vehicle-marker: tests/test_vehicle_marker.c src/vehicle_marker.h src/vehicle_protocol.h | build
+	$(CC) $(CFLAGS) $(WARN) -Isrc tests/test_vehicle_marker.c -o $@ -lm
+
+test: build/test-rtp build/test-panini build/test-vehicles build/test-vehicle-marker
 	./build/test-rtp
 	./build/test-panini
 	./build/test-vehicles
+	./build/test-vehicle-marker
 
 clean:
+	rm -f build/test-vehicle-marker
 	rm -f build/rear-camera build/test-rtp build/test-panini build/test-video-panini build/render-views build/benchmark-panini build/vehicle-detector build/benchmark-detector build/benchmark-yolov5 build/vehicle_tracking.o build/test-vehicles build/test-vehicle-overlay build/test-detector-boxes build/liboffline-tracking.so

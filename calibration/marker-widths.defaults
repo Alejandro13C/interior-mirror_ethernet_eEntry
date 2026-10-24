@@ -1,0 +1,5 @@
+# PROVISIONAL: empirical apparent widths from six racing videos.
+# Width = car bounding-box pixels / full image width.
+# Not metres, approach speed or collision risk. Refit after final mounting.
+CAMERA_MARKER_FAR_WIDTH=0.02658594
+CAMERA_MARKER_NEAR_WIDTH=0.18681250
