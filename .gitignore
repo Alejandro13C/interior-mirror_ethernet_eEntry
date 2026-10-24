@@ -3,6 +3,7 @@
 .ssh_known_hosts
 build/
 comparasions/
+auditoria/
 
 __pycache__/
 *.pyc
