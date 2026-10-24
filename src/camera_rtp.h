@@ -28,6 +28,8 @@ typedef struct {
     bool have_frame, valid;
     uint64_t first_arrival_ns;
     uint64_t packets, complete, damaged, sequence_errors, oversized;
+    uint64_t duplicates, late_packets, resyncs;
+    unsigned behind; /* consecutive packets older than the stream */
 } CameraAssembler;
 bool camera_assemble(CameraAssembler *a, const CameraPacket *packet,
                      uint64_t arrival_ns, CameraFrameFn emit, void *ctx);

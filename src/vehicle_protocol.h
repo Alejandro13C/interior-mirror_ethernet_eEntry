@@ -5,10 +5,18 @@
 #include <stdbool.h>
 #include <math.h>
 #define CAMERA_AI_MAGIC 0x56454831u
-#define CAMERA_AI_VERSION 2u
+#define CAMERA_AI_VERSION 3u
+/* Default export: the whole picture as a 416x250 I420 thumbnail. With
+   CAMERA_AI_BAND the overlay exports only a horizontal band, up to
+   CAMERA_AI_MAX_WIDTH wide; any even size fitting CAMERA_AI_BYTES is valid. */
 #define CAMERA_AI_WIDTH 416u
 #define CAMERA_AI_HEIGHT 250u
+#define CAMERA_AI_MAX_WIDTH 512u
 #define CAMERA_AI_BYTES (CAMERA_AI_WIDTH*CAMERA_AI_HEIGHT*3u/2u)
+static inline bool camera_frame_size_valid(uint32_t width,uint32_t height) {
+    return width>=32 && height>=32 && width<=CAMERA_AI_MAX_WIDTH && height<=CAMERA_AI_HEIGHT &&
+        !(width&1) && !(height&1) && (uint64_t)width*height*3/2<=CAMERA_AI_BYTES;
+}
 #define CAMERA_AI_MAX 16u
 #define CAMERA_AI_TTL_NS 750000000ull
 #define CAMERA_AI_709 1u

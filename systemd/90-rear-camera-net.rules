@@ -1,0 +1,11 @@
+# Camera interface (keep KERNEL equal to CAMERA_INTERFACE).
+# Link up as soon as the adapter appears: negotiation takes ~2 s, and started by
+# run-pi.sh it was the last step before the first frame at boot.
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="eth0", RUN+="/usr/sbin/ip link set dev %k up"
+# Receive Packet Steering.
+# Without it the network stack runs on the core that took the USB interrupt and the
+# adapter loses packets (7.8 damaged frames per 10 s, 24.2 fps). Steering it to the
+# detector cores (mask c = cores 2-3): 0 damaged, 24.96 fps, video latency and CPU
+# unchanged, inference +5 ms. Mask 3 (video cores) also stops the loss but adds
+# 2-3 ms of video latency and 3.5 points of video CPU.
+ACTION!="remove", SUBSYSTEM=="net", KERNEL=="eth0", ATTR{queues/rx-0/rps_cpus}="c"

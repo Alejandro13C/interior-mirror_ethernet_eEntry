@@ -27,14 +27,28 @@ def sample():
             pass
     thermal = Path('/sys/class/thermal/thermal_zone0/temp')
     state['temperature_c'] = int(thermal.read_text()) / 1000 if thermal.exists() else None
-    state['throttled'] = None
+    state['throttled'] = state['arm_hz'] = None
     try:
         result = subprocess.run(['vcgencmd', 'get_throttled'], capture_output=True,
                                 text=True, check=True, timeout=3)
         state['throttled'] = int(result.stdout.strip().split('=')[1], 16)
-    except (OSError, ValueError, subprocess.SubprocessError):
+        result = subprocess.run(['vcgencmd', 'measure_clock', 'arm'], capture_output=True,
+                                text=True, check=True, timeout=3)
+        state['arm_hz'] = int(result.stdout.strip().split('=')[1])
+    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
         pass
     return state
+
+
+# get_throttled bits: 0-3 now, 16-19 since boot.
+FLAGS = {0: 'subtension', 1: 'frecuencia ARM limitada', 2: 'throttling', 3: 'limite termico suave'}
+
+
+def decode(value):
+    if value is None:
+        return None
+    return {'ahora': [n for b, n in FLAGS.items() if value >> b & 1],
+            'desde_arranque': [n for b, n in FLAGS.items() if value >> (b + 16) & 1]}
 
 
 def main():
@@ -57,6 +71,8 @@ def main():
             problems.add('reinicio durante la observacion')
         if current['throttled'] is not None and current['throttled'] & 0xf:
             problems.add('alimentacion/frecuencia/temperatura limitada actualmente')
+        if current['throttled'] is not None and current['throttled'] >> 16 & 0xf:
+            problems.add('limitacion registrada desde el arranque')
         remaining = args.seconds - (time.monotonic() - started)
         if remaining <= 0:
             break
@@ -64,10 +80,16 @@ def main():
         samples.append(sample())
     rss = [s['rss_kb'] for s in samples if s['rss_kb'] is not None]
     temperatures = [s['temperature_c'] for s in samples if s['temperature_c'] is not None]
+    clocks = [s['arm_hz'] / 1e6 for s in samples if s['arm_hz']]
+    governor = Path('/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor')
     print(json.dumps({'seconds': round(time.monotonic() - started, 2),
         'samples': len(samples), 'first': first, 'last': samples[-1],
         'rss_min_kb': min(rss) if rss else None, 'rss_max_kb': max(rss) if rss else None,
         'temperature_max_c': max(temperatures) if temperatures else None,
+        'arm_mhz_min': min(clocks) if clocks else None,
+        'arm_mhz_mean': round(sum(clocks) / len(clocks), 1) if clocks else None,
+        'governor': governor.read_text().strip() if governor.exists() else None,
+        'throttled_last': decode(samples[-1]['throttled']),
         'problems': sorted(problems),
         'scope': 'Servicio y recursos; no comprueba fotogramas ni latencia de pantalla.'},
         ensure_ascii=False, indent=2))

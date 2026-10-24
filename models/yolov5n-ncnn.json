@@ -44,8 +44,8 @@
     ]
   ],
   "artifacts": {
-    "param": "117c4ed8151217b67612aa3ae9948321dbaca977bb603266a0014d39f6471c28",
+    "param": "e460f77eedd18a78aa0e796f210a24f7404ff3e562749dfa8e1935582e1fc7cb",
     "bin": "0f5dc13935fce2c513f2d38b8227f5181b560c33214e19b18a6ce4443fae9804"
   },
-  "silu_lowering": "Swish(x) = x * sigmoid(x), using existing NCNN Split/Sigmoid/BinaryOp layers; weights unchanged."
+  "activation": "Native NCNN Swish (x*sigmoid(x)) for all 57 SiLU; requires NCNN built with the swish layer (tools/build-ncnn.py). Weights unchanged."
 }

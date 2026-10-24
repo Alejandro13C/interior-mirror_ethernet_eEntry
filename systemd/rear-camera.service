@@ -1,7 +1,13 @@
 [Unit]
 Description=Retrovisor digital RTP con decodificacion H.264 por hardware
-After=systemd-udev-trigger.service
-Conflicts=getty@tty7.service
+# Early start: the default ordering after basic.target held the picture ~4 s for
+# cloud-init. Needs the read-write root, the journal and the display (vc4 is card0
+# on the Pi 3); run-pi.sh waits for the interface and the hardware decoder.
+DefaultDependencies=no
+Wants=dev-dri-card0.device
+After=systemd-udev-trigger.service systemd-remount-fs.service systemd-journald.socket dev-dri-card0.device
+Conflicts=getty@tty7.service shutdown.target
+Before=shutdown.target
 StartLimitIntervalSec=0
 
 [Service]
@@ -10,19 +16,37 @@ User=alejandro
 Group=alejandro
 SupplementaryGroups=video render
 WorkingDirectory=/home/alejandro/Rear_camera
+# Panini map cache (CACHE_DIRECTORY): avoids a >1 s rebuild on every restart.
+CacheDirectory=rear-camera
 EnvironmentFile=-/etc/default/rear-camera
 EnvironmentFile=-/etc/default/rear-camera-markers
-ExecStartPre=+/usr/bin/bash /home/alejandro/Rear_camera/display-console.sh
+# Root-owned copy: the service user must not be able to edit what runs as root.
+# '-': a cosmetic console failure must not prevent the video from starting.
+ExecStartPre=-+/usr/bin/bash /usr/local/lib/rear-camera/display-console.sh
 ExecStart=/usr/bin/bash /home/alejandro/Rear_camera/run-pi.sh
-ExecStopPost=+/usr/bin/bash /home/alejandro/Rear_camera/display-console.sh
+ExecStopPost=-+/usr/bin/bash /usr/local/lib/rear-camera/display-console.sh
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 Restart=always
 RestartSec=1
+# Automatic restarts leave the detector (PartOf) running with its model loaded.
+RestartMode=direct
+# Exit status 78 (EX_CONFIG) is an invalid configuration: retrying cannot fix it.
+RestartPreventExitStatus=78
 TimeoutStopSec=5
 KillMode=control-group
 CPUAccounting=true
 CPUAffinity=0 1
+# Under memory pressure the detector goes first, never the rear view.
+OOMScoreAdjust=-500
+NoNewPrivileges=true
+ProtectSystem=full
+# Private /tmp without waiting for tmp.mount (systemd 256+).
+PrivateTmp=disconnected
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_PACKET AF_NETLINK
 StandardOutput=journal
 StandardError=journal
 

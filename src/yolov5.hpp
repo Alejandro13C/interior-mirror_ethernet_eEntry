@@ -2,12 +2,6 @@
 #define REAR_CAMERA_YOLOV5_HPP
 #include "nanodet.hpp"
 
-// Optional offline diagnostics. Production calls leave this disabled.
-struct YoloDiagnostics {
-    uint64_t anchors=0,objectness_rejected=0,class_rejected=0,score_rejected=0;
-    float peak_vehicle_score=0,peak_vehicle_argmax_score=0;
-};
-
 // Original YOLOv5 v7.0 heads; decode matches models/yolo.py Detect.forward.
 class YoloV5 {
     ncnn::Net net;
@@ -15,6 +9,9 @@ class YoloV5 {
     bool rectangular;
     static float sigmoid(float x) {return 1.f/(1.f+std::exp(-x));}
 public:
+    // Best vehicle score of the last image, even below the threshold: tells
+    // "nothing resembles a vehicle" apart from "almost passed the threshold".
+    float last_peak=0;
     explicit YoloV5(const std::string &prefix,int input=640,int threads=2,bool rect=false):size(input),rectangular(rect) {
         if(input<256 || input>640 || input%32 || threads<1 || threads>4)
             throw std::runtime_error("YOLOv5 input must be 256..640, multiple of 32; threads 1..4");
@@ -28,10 +25,9 @@ public:
         if(net.input_names().size()!=1 || std::strcmp(net.input_names()[0],"in0"))
             throw std::runtime_error("Unsupported YOLOv5 input tensor");
     }
-    std::vector<Vehicle> detect(const cv::Mat &image,float threshold=.15f,bool vehicles_only=true,YoloDiagnostics *diagnostics=nullptr) {
-        if(image.empty() || image.type()!=CV_8UC3 || !std::isfinite(threshold) || threshold<=0 || threshold>=1)
+    std::vector<Vehicle> detect(const cv::Mat &image,float threshold=.15f) {
+        if(image.empty() || image.type()!=CV_8UC3 || threshold<=0 || threshold>=1)
             throw std::runtime_error("Invalid YOLOv5 image/threshold");
-        if(diagnostics)*diagnostics=YoloDiagnostics{};
         float scale=float(size)/std::max(image.cols,image.rows);
         int w=std::max(1,int(std::lround(image.cols*scale))),h=std::max(1,int(std::lround(image.rows*scale)));
         int input_w=rectangular?(w+31)/32*32:size;
@@ -47,6 +43,7 @@ public:
         static const float anchors[3][6]={{10,13,16,30,33,23},{30,61,62,45,59,119},{116,90,156,198,373,326}};
         static const char *names[]={"out0","out1","out2"};
         std::vector<Vehicle> candidates;
+        last_peak=0;
         for(int level=0;level<3;++level) {
             int stride=8<<level,grid_w=input_w/stride,grid_h=input_h/stride;ncnn::Mat head;
             if(ex.extract(names[level],head) || head.dims!=3 || head.c!=255 || head.w!=grid_w || head.h!=grid_h)
@@ -54,19 +51,15 @@ public:
             for(int a=0;a<3;++a)for(int y=0;y<grid_h;++y)for(int x=0;x<grid_w;++x) {
                 auto at=[&](int channel){return head.channel(a*85+channel).row(y)[x];};
                 float objectness=sigmoid(at(4));
-                if(diagnostics) {
-                    diagnostics->anchors++;
-                    for(int c:{2,3,5,7})diagnostics->peak_vehicle_score=std::max(
-                        diagnostics->peak_vehicle_score,objectness*sigmoid(at(c+5)));
+                if(objectness>last_peak) {
+                    float best=std::max({at(7),at(8),at(10),at(12)}); // car, motorcycle, bus, truck
+                    last_peak=std::max(last_peak,objectness*sigmoid(best));
                 }
-                if(objectness<threshold){if(diagnostics)diagnostics->objectness_rejected++;continue;}
+                if(objectness<threshold)continue;
                 int category=0;float peak=at(5);
                 for(int c=1;c<80;++c){float value=at(c+5);if(value>peak){category=c;peak=value;}}
-                bool vehicle=category==2 || category==3 || category==5 || category==7;
-                float score=objectness*sigmoid(peak);
-                if(diagnostics && vehicle)diagnostics->peak_vehicle_argmax_score=std::max(diagnostics->peak_vehicle_argmax_score,score);
-                if(vehicles_only && !vehicle){if(diagnostics)diagnostics->class_rejected++;continue;}
-                if(score<threshold){if(diagnostics)diagnostics->score_rejected++;continue;}
+                if(category!=2 && category!=3 && category!=5 && category!=7)continue;
+                float score=objectness*sigmoid(peak);if(score<threshold)continue;
                 float cx=(sigmoid(at(0))*2-.5f+x)*stride,cy=(sigmoid(at(1))*2-.5f+y)*stride;
                 float bw=std::pow(sigmoid(at(2))*2,2)*anchors[level][a*2];
                 float bh=std::pow(sigmoid(at(3))*2,2)*anchors[level][a*2+1];

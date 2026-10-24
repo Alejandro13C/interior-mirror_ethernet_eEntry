@@ -85,19 +85,72 @@ static void assembler_tests(void) {
     assert(o.count == 1 && a.sequence_errors == 2);
     assert(feed(&a, &o, 7, 0x400, 1));
     assert(o.count == 2);
-    assert(feed(&a, &o, 7, 0x400, 1)); /* Duplicate: do not decode corruption. */
+    size_t before = o.bytes;
+    /* Duplicate: skipped, neither appended (corruption) nor fatal to the frame. */
+    assert(feed(&a, &o, 7, 0x400, 1));
     assert(feed(&a, &o, 8, 0x500, 1));
-    assert(o.count == 2);
-    assert(feed(&a, &o, 0, 0x600, 2)); /* New source: discard previous frame. */
-    assert(o.count == 2);
-    assert(feed(&a, &o, 1, 0x700, 2));
-    assert(o.count == 3);
+    assert(o.count == 3 && o.bytes == before + sizeof sps && a.duplicates == 1 && a.sequence_errors == 2);
+    /* A late packet from an earlier frame is dropped without damaging this one. */
+    assert(feed(&a, &o, 5, 0x500, 1));
+    assert(feed(&a, &o, 9, 0x600, 1));
+    assert(o.count == 4 && a.late_packets == 1 && a.sequence_errors == 2);
+    assert(feed(&a, &o, 0, 0x700, 2)); /* New source: discard previous frame. */
+    assert(o.count == 4);
+    assert(feed(&a, &o, 1, 0x800, 2));
+    assert(o.count == 5);
     CameraPacket huge = {.payload = sps, .size = CAMERA_FRAME_LIMIT + 1,
-        .seq = 2, .timestamp = 0x800, .ssrc = 2};
+        .seq = 2, .timestamp = 0x900, .ssrc = 2};
     assert(camera_assemble(&a, &huge, 0, collect, &o));
     assert(a.oversized == 1 && !a.valid);
     camera_assembler_clear(&a);
-    assert(o.count == 4); /* Last timestamp deliberately not flushed. */
+    assert(o.count == 6); /* Last timestamp deliberately not flushed. */
+
+    /* Camera restart keeping its SSRC with a lower sequence: resynchronize
+       after 32 packets, not after the 16-bit counter catches up. */
+    CameraAssembler r = {0}; Output q = {0};
+    for (unsigned i = 0; i < 100; ++i) assert(feed(&r, &q, 30000 + i, 0x1000 + i, 7));
+    unsigned emitted = q.count;
+    for (unsigned i = 0; i < 40; ++i) assert(feed(&r, &q, 10 + i, 0x5000 + i, 7));
+    assert(r.resyncs == 1 && r.late_packets == 31 && q.count > emitted);
+    camera_assembler_clear(&r);
+}
+
+/* Deterministic fuzzing: mutated and truncated packets must never be parsed
+   out of bounds (run under ASan with `make test-asan`), and any accepted
+   payload must lie inside the buffer and feed the assembler safely. */
+static bool discard(void *ctx, uint8_t *data, size_t n, uint32_t ts, uint64_t arrival) {
+    (void)ctx; (void)ts; (void)arrival;
+    assert(n >= 4 && !data[0] && !data[1]); /* a frame starts with its SPS start code */
+    free(data);
+    return true;
+}
+static void fuzz_tests(void) {
+    uint8_t r[64] = {0x80, 127};
+    put16(r + 2, 100); put32(r + 4, 9000); put32(r + 8, 1);
+    memcpy(r + 12, "\0\0\0\1\x67\x42\0\0\0\1\x65\x88", 12);
+    uint8_t valid[512];
+    size_t n = ethernet(valid, 1, r, 24);
+    CameraAssembler a = {0};
+    uint32_t seed = 12345;
+    for (unsigned i = 0; i < 200000; ++i) {
+        size_t size = n;
+        uint8_t *b = malloc(size); /* exact size: ASan sees any over-read */
+        assert(b);
+        memcpy(b, valid, size);
+        for (unsigned k = 0, flips = 1 + i % 8; k < flips; ++k) {
+            seed = seed * 1664525u + 1013904223u;
+            b[(seed >> 8) % size] ^= (uint8_t)(seed >> 24);
+        }
+        seed = seed * 1664525u + 1013904223u;
+        if (seed % 4 == 0) size = (seed >> 8) % (n + 1);
+        CameraPacket p;
+        if (camera_packet(b, size, &p)) {
+            assert(p.payload >= b && p.size && p.payload + p.size <= b + size);
+            assert(camera_assemble(&a, &p, i, discard, NULL));
+        }
+        free(b);
+    }
+    camera_assembler_clear(&a);
 }
 
 static void capture_test(const char *path) {
@@ -118,7 +171,7 @@ static void capture_test(const char *path) {
     camera_assembler_clear(&a); free(b); fclose(file);
 }
 int main(int argc, char **argv) {
-    parser_tests(); assembler_tests();
+    parser_tests(); assembler_tests(); fuzz_tests();
     if (argc == 2) capture_test(argv[1]);
     puts("RTP tests passed");
     return 0;

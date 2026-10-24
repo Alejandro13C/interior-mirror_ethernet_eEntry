@@ -1,5 +1,26 @@
+# Deployed configuration (/etc/default/rear-camera).
+CAMERA_INTERFACE=eth0
+CAMERA_MIRROR=0
+CAMERA_ROTATION=0
 CAMERA_PANINI=1
 CAMERA_COMPRESSION=1
 CAMERA_LENS_FOV=180
 CAMERA_VIEW_FOV=130
 CAMERA_PITCH=0
+# 7-inch panel pixels are ~16/15 wider than tall: without this, kmssink cropped
+# the picture to 750 of its 800 columns (plane src 750x480).
+CAMERA_DISPLAY_PAR=16/15
+CAMERA_DETECTION=1
+CAMERA_DETECTOR_MODEL=yolov5n
+CAMERA_DETECTOR_SIZE=512
+CAMERA_DETECTOR_THREADS=2
+CAMERA_DETECTOR_RECT=1
+CAMERA_DETECTOR_THRESHOLD=0.15
+CAMERA_DETECTOR_START_THRESHOLD=0.25
+# Detection profile chosen on 24/10/2026: band ROI (concession: vertical field;
+# check the road falls inside once the camera is mounted) and fast confirmation
+# (concession: more false marks). Without these lines: whole picture at 320x192.
+CAMERA_AI_BAND=0.3333,0.75
+CAMERA_DETECTOR_FAST_CONFIRM=0.6
+# Triangle size chosen on screen on 24/10/2026 (20 too small, 44 too large).
+CAMERA_MARKER_SIZE=32

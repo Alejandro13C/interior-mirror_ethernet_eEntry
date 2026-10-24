@@ -1,3 +1,0 @@
--r video-requirements.txt
-onnxruntime==1.31.0
-openvino==2026.4.1

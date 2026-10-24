@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-"""Build pinned NCNN with layers required by NanoDet and YOLOv5n."""
+"""Build pinned NCNN with layers required by NanoDet and YOLOv5n.
+
+Usage: build-ncnn.py [name]  (default ncnn: build/<name> and build/<name>-install)
+"""
 from pathlib import Path
+import sys
 import hashlib
 import platform
 import re
@@ -24,21 +28,25 @@ if not source.exists():
     source.parent.mkdir(exist_ok=True)
     with tarfile.open(archive) as tar:
         tar.extractall(source.parent, filter='data')
-needed = {'binaryop','concat','convolution','convolutiondepthwise','input','interp',
+needed = {'swish','binaryop','concat','convolution','convolutiondepthwise','input','interp',
           'permute','pooling','reshape','shufflechannel','sigmoid','slice','split',
           'relu','clip','innerproduct','flatten','packing','cast','padding','softmax','scale','bias','crop'}
 classes = re.findall(r'ncnn_add_layer\((\w+)', (source/'src/CMakeLists.txt').read_text())
-cache = build / 'ncnn-layers.cmake'
+name = sys.argv[1] if len(sys.argv) > 1 else 'ncnn'
+cache = build / f'{name}-layers.cmake'
 cache.write_text('\n'.join(f'set(WITH_LAYER_{c.lower()} {"ON" if c.lower() in needed else "OFF"} CACHE BOOL "" FORCE)' for c in classes)+'\n')
-command = ['cmake','-S',str(source),'-B',str(build/'ncnn'),'-C',str(cache),
-           '-DCMAKE_BUILD_TYPE=Release',f'-DCMAKE_INSTALL_PREFIX={build/"ncnn-install"}',
+command = ['cmake','-S',str(source),'-B',str(build/name),'-C',str(cache),
+           '-DCMAKE_BUILD_TYPE=Release',f'-DCMAKE_INSTALL_PREFIX={build/(name+"-install")}',
            '-DNCNN_VULKAN=OFF','-DNCNN_BUILD_TOOLS=OFF','-DNCNN_BUILD_EXAMPLES=OFF',
            '-DNCNN_BUILD_BENCHMARK=OFF','-DNCNN_BUILD_TESTS=OFF','-DNCNN_RUNTIME_CPU=OFF',
            '-DNCNN_INT8=OFF','-DNCNN_BF16=OFF','-DNCNN_C_API=OFF']
-if platform.machine().startswith('armv7'):
-    command += ['-DCMAKE_CXX_FLAGS=-O3 -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard']
+# The compiler target decides: a 64-bit kernel reports aarch64 under 32-bit Raspbian.
+target = subprocess.run(['cc','-dumpmachine'],capture_output=True,text=True).stdout
+if target.startswith('arm-') or platform.machine().startswith('armv7'):
+    # Pi 3: Cortex-A53 running 32-bit code (ARMv8 NEON with FMA).
+    command += ['-DCMAKE_CXX_FLAGS=-O3 -mcpu=cortex-a53 -mfpu=neon-fp-armv8 -mfloat-abi=hard']
 subprocess.run(command,check=True)
 # Keep memory use bounded on the 512 MB Pi; normal video keeps running.
-subprocess.run(['cmake','--build',str(build/'ncnn'),'--parallel','1'],check=True)
-subprocess.run(['cmake','--install',str(build/'ncnn')],check=True)
-print('NCNN installed in',build/'ncnn-install')
+subprocess.run(['cmake','--build',str(build/name),'--parallel','1'],check=True)
+subprocess.run(['cmake','--install',str(build/name)],check=True)
+print('NCNN installed in',build/(name+'-install'))

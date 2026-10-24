@@ -123,7 +123,7 @@ int main(int argc,char **argv) {
     ok=normal && save_ppm(normal,argv[2],"original-fit") && ok;
     if(normal)gst_sample_unref(normal);
     for(int kind=panini_only ? 1 : 0;kind<2;kind++)for(size_t j=0;j<count;j++) {
-        PaniniConfig config={kind ? 1 : 0,180,fovs[j],0};
+        PaniniConfig config={kind ? 1 : 0,180,fovs[j],0,0};
         gchar *name=g_strdup_printf("%s-fov%.0f",kind?"panini":"rectilinear",fovs[j]);
         GstSample *view=process("appsrc name=input format=time ! camerapanini name=warp ! "
             "videoconvert ! video/x-raw,format=RGB ! appsink name=output sync=false",

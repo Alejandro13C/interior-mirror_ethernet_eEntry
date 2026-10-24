@@ -131,7 +131,7 @@ def replay(ffmpeg, source, rows, fps, start, seconds, target, style, far, near):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--input', type=Path, default=ROOT/'comparisons/old/all-models_all-frames_6-videos')
+    p.add_argument('--input', type=Path, required=True, help='folder with manifest.json and */yolov5n/detections.jsonl')
     p.add_argument('--output', type=Path, default=ROOT/'comparisons/marker-calibration')
     p.add_argument('--profile', type=Path, default=ROOT/'calibration/marker-widths.defaults')
     p.add_argument('--render', action='store_true')
@@ -219,7 +219,7 @@ def main():
               'method': 'Manual endpoint override.' if custom else 'Median of per-clip 10th/90th width percentiles; confirmed unclipped cars sampled at 1 Hz.',
               'clips': clips, 'python_peak_rss_mib': resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024,
               'limits': ['No ground-truth distances or physical calibration.',
-                         'Different cameras/projections; no validated transfer to Ficosa/Panini.',
+                         'Different cameras/projections; no validated transfer to the installed camera/Panini.',
                          'Saved YOLOv5n640 detections, not a Pi320 detection quality or performance test.',
                          'Width changes can reflect orientation, box jitter or identity changes, not approach.',
                          'False and missed detections remain uncorrected; color does not improve detection.']}
@@ -235,7 +235,7 @@ def main():
             f'<p>Perfil provisional: verde/16 px hasta {far*100:.2f}% del ancho; '
             f'amarillo/26 px en {(far+near)*50:.2f}%; rojo/36 px desde {near*100:.2f}%.</p>'
             '<p>No son metros ni una medida de riesgo. Blanco: clase no comparable o caja recortada. '
-            'Sin inferencia nueva, sin calibración Ficosa/Panini y sin simulación de los tiempos de la Pi. '
+            'Sin inferencia nueva, sin calibración de la cámara instalada/Panini y sin simulación de los tiempos de la Pi. '
             'Los errores del detector se conservan. Previsualizaciones sin audio.</p><main>'+cards+'</main></html>')
     print(f'Profile: {a.profile}; FAR={far:.8f}, NEAR={near:.8f}', flush=True)
 

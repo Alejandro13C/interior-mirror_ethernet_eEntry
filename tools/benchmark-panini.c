@@ -19,7 +19,7 @@ int main(int argc,char **argv) {
     GstElement *source=gst_bin_get_by_name(GST_BIN(p),"input");
     GstElement *sink=gst_bin_get_by_name(GST_BIN(p),"output");
     GstElement *warp=gst_bin_get_by_name(GST_BIN(p),"warp");
-    PaniniConfig config={1,180,130,0};camera_panini_configure(warp,&config);
+    PaniniConfig config={1,180,130,0,0};camera_panini_configure(warp,&config);
     assert(gst_element_set_state(p,GST_STATE_PLAYING)!=GST_STATE_CHANGE_FAILURE);
     const size_t bytes=1344u*968u*3u/2u;guint8 *pixels=g_malloc(bytes);
     uint32_t seed=42;

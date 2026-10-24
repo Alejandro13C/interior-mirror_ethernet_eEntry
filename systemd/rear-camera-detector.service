@@ -1,7 +1,11 @@
 [Unit]
 Description=Rear camera vehicle detection worker
+# Starts with the video, early in boot (see rear-camera.service).
+DefaultDependencies=no
 After=rear-camera.service
 PartOf=rear-camera.service
+Conflicts=shutdown.target
+Before=shutdown.target
 ConditionPathExists=/home/alejandro/Rear_camera/build/vehicle-detector
 
 [Service]
@@ -18,6 +22,7 @@ ExecStart=/home/alejandro/Rear_camera/build/vehicle-detector
 Restart=on-failure
 RestartSec=2
 Nice=10
+OOMScoreAdjust=500
 CPUAffinity=2 3
 CPUQuota=200%
 CPUWeight=20
@@ -29,7 +34,7 @@ TimeoutStopSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-PrivateTmp=true
+PrivateTmp=disconnected
 RestrictAddressFamilies=AF_UNIX
 StandardOutput=journal
 StandardError=journal

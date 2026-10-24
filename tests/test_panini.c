@@ -8,7 +8,7 @@
 static void check_bourke_inverse(void) {
     const double ds[] = {0, .25, .5, 1, 2};
     for (unsigned j = 0; j < sizeof ds / sizeof ds[0]; ++j) {
-        PaniniConfig c = {ds[j],180,140,0};
+        PaniniConfig c = {ds[j],180,140,0,0};
         double half = c.view_fov*PI/360;
         double extent = (c.compression+1)*sin(half)/(c.compression+cos(half));
         double scale = 800/(2*extent);
@@ -37,7 +37,7 @@ static void check_bourke_inverse(void) {
 }
 int main(void) {
     check_bourke_inverse();
-    PaniniConfig c = {1,180,120,0};
+    PaniniConfig c = {1,180,120,0,0};
     double x,y,x2,y2;
     assert(panini_source(&c,1344,968,800,480,399.5,239.5,&x,&y));
     assert(fabs(x-671.5)<1e-8 && fabs(y-483.5)<1e-8);
@@ -57,10 +57,22 @@ int main(void) {
     assert(panini_source(&c,1344,968,800,480,399.5,239.5,&x,&y));
     assert(fabs(x-671.5)<1e-8 && fabs(y-(483.5-1344*20/180.0))<1e-7);
     c.compression=NAN;assert(!panini_valid(&c));
-    c=(PaniniConfig){1,180,120,0};
+    c=(PaniniConfig){1,180,120,0,0};
     assert(!panini_source(&c,1344,968,800,480,NAN,0,&x,&y));
     c.view_fov=179;assert(!panini_valid(&c));
-    c=(PaniniConfig){1,90,160,45};
+    c=(PaniniConfig){1,90,160,45,0};
     assert(!panini_source(&c,1344,968,800,480,799,0,&x,&y));
+    /* Non-square display pixels (16/15 on the 7-inch panel): the horizontal
+       mapping is unchanged and each row spans p times less vertical angle. */
+    c=(PaniniConfig){1,180,130,0,16.0/15};
+    assert(panini_valid(&c));
+    PaniniConfig square=c;square.pixel_aspect=0;
+    assert(panini_source(&c,1344,968,800,480,700,239.5,&x,&y));
+    assert(panini_source(&square,1344,968,800,480,700,239.5,&x2,&y2));
+    assert(fabs(x-x2)<1e-9 && fabs(y-y2)<1e-9);
+    double half=130*PI/360,scale=800/(2*2*sin(half)/(1+cos(half)));
+    assert(panini_source(&c,1344,968,800,480,399.5,0,&x,&y));
+    assert(fabs(x-671.5)<1e-8 && fabs(y-(483.5-1344/PI*atan(239.5/(scale*16/15))))<1e-7);
+    c.pixel_aspect=3;assert(!panini_valid(&c));
     puts("Panini geometry tests passed");
 }

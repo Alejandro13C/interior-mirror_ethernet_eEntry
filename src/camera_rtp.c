@@ -78,11 +78,21 @@ bool camera_assemble(CameraAssembler *a, const CameraPacket *p,
         a->have_frame = false;
     }
     if (a->have_frame && p->seq != (uint16_t)(a->seq + 1)) {
-        a->sequence_errors++;
-        a->valid = false; /* A gap on a boundary can lose the previous tail. */
         uint16_t delta = (uint16_t)(p->seq - a->seq);
-        if (!delta || delta > 0x8000u) return true; /* Duplicate or late packet. */
+        if (!delta) { a->duplicates++; return true; } /* Same packet again: harmless. */
+        if (delta > 0x8000u) {
+            /* Late packets are dropped; their gap was counted when it opened.
+               A restarted camera may keep its SSRC and restart the sequence
+               lower: resynchronize instead of waiting up to 32768 packets. */
+            if (++a->behind < 32) { a->late_packets++; return true; }
+            a->resyncs++;
+            a->have_frame = false;
+        } else {
+            a->sequence_errors++;
+            a->valid = false; /* A gap on a boundary can lose the previous tail. */
+        }
     }
+    a->behind = 0;
     if (!a->have_frame || a->timestamp != p->timestamp) {
         if (a->have_frame) {
             if (a->valid && a->size) {

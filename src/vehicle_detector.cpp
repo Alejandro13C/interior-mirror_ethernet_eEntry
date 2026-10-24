@@ -4,6 +4,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <sched.h>
 #include <poll.h>
 #include <csignal>
 #include <cstring>
@@ -18,7 +19,7 @@ static volatile sig_atomic_t running=1;
 static void stop(int){running=0;}
 static uint64_t now_ns(){timespec t{};clock_gettime(CLOCK_MONOTONIC,&t);return uint64_t(t.tv_sec)*1000000000+t.tv_nsec;}
 static cv::Mat decode_frame(const CameraAIFrame &frame) {
-    const int w=CAMERA_AI_WIDTH,h=CAMERA_AI_HEIGHT;
+    const int w=int(frame.width),h=int(frame.height); // checked by camera_frame_size_valid
     cv::Mat bgr(h,w,CV_8UC3);
     const uint8_t *yy=frame.pixels,*uu=yy+w*h,*vv=uu+w*h/4;
     bool full=frame.flags&CAMERA_AI_FULL_RANGE,hd=frame.flags&CAMERA_AI_709;
@@ -36,14 +37,16 @@ static cv::Mat decode_frame(const CameraAIFrame &frame) {
     return bgr;
 }
 int main(int argc,char **argv) {
-    const char *kind=std::getenv("CAMERA_DETECTOR_MODEL");if(!kind)kind="nanodet";
+    const char *kind=std::getenv("CAMERA_DETECTOR_MODEL");if(!kind)kind="yolov5n";
     bool use_yolo=!std::strcmp(kind,"yolov5n");
     if(!use_yolo && std::strcmp(kind,"nanodet")){std::cerr<<"CAMERA_DETECTOR_MODEL must be nanodet or yolov5n\n";return 2;}
     const char *model=use_yolo?"models/yolov5n":"models/nanodet_plus_m";
+    if(const char *prefix=std::getenv("CAMERA_DETECTOR_PREFIX"))model=prefix;
     if(argc==3 && !std::strcmp(argv[1],"--model"))model=argv[2];
     else if(argc!=1){std::cerr<<"Usage: vehicle-detector [--model prefix]\n";return 2;}
-    int input_size=use_yolo?640:256,threads=use_yolo?2:1;
-    bool rectangular=false;
+    // Defaults = the deployed Pi profile (YOLOv5n 320x192 rectangular, 2 threads).
+    int input_size=use_yolo?320:256,threads=use_yolo?2:1;
+    bool rectangular=use_yolo;
     if(const char *value=std::getenv("CAMERA_DETECTOR_RECT")) {
         if(std::strcmp(value,"0") && std::strcmp(value,"1")){std::cerr<<"CAMERA_DETECTOR_RECT must be 0 or 1\n";return 2;}
         rectangular=!std::strcmp(value,"1");
@@ -52,6 +55,7 @@ int main(int argc,char **argv) {
         if(!std::strcmp(value,"256"))input_size=256;
         else if(!std::strcmp(value,"320"))input_size=320;
         else if(!std::strcmp(value,"416"))input_size=416;
+        else if(use_yolo && !std::strcmp(value,"512"))input_size=512; // 512x128 band (CAMERA_AI_BAND)
         else if(use_yolo && !std::strcmp(value,"640"))input_size=640;
         else {std::cerr<<"Invalid CAMERA_DETECTOR_SIZE\n";return 2;}
     }
@@ -60,6 +64,12 @@ int main(int argc,char **argv) {
         threads=value[0]-'0';
         if(!use_yolo && threads!=1){std::cerr<<"NanoDet worker uses one thread\n";return 2;}
     }
+    // More threads than allowed CPUs (systemd CPUAffinity) only adds contention.
+    cpu_set_t allowed;
+    if(!sched_getaffinity(0,sizeof allowed,&allowed) && CPU_COUNT(&allowed)<threads) {
+        std::cerr<<"Using "<<CPU_COUNT(&allowed)<<" threads: only that many CPUs are allowed\n";
+        threads=CPU_COUNT(&allowed);
+    }
     auto threshold_from_env=[](const char *name,float fallback) {
         const char *value=std::getenv(name);if(!value)return fallback;
         char *end=nullptr;float result=std::strtof(value,&end);
@@ -67,11 +77,13 @@ int main(int argc,char **argv) {
             throw std::runtime_error(std::string("Invalid ")+name);
         return result;
     };
-    float threshold,start_threshold;
+    float threshold,start_threshold,fast_confirm=0;
     try {
         threshold=threshold_from_env("CAMERA_DETECTOR_THRESHOLD",use_yolo?.15f:.4f);
         start_threshold=threshold_from_env("CAMERA_DETECTOR_START_THRESHOLD",use_yolo?.25f:.4f);
         if(start_threshold<threshold)throw std::runtime_error("Start threshold must be >= detection threshold");
+        // Concession, off by default: show a very confident detection after one observation.
+        if(std::getenv("CAMERA_DETECTOR_FAST_CONFIRM"))fast_confirm=threshold_from_env("CAMERA_DETECTOR_FAST_CONFIRM",0);
     }catch(const std::exception &e){std::cerr<<e.what()<<"\n";return 2;}
     signal(SIGINT,stop);signal(SIGTERM,stop);
     const char *dir=std::getenv("CAMERA_DETECTOR_DIR");if(!dir)dir="/run/rear-camera-detector";
@@ -97,8 +109,10 @@ int main(int argc,char **argv) {
         std::unordered_map<uint32_t,Peak> peaks;
         uint64_t processed=0,expired=0,replaced=0,found=0,sum_ns=0,last_log=now_ns(),previous=0;
         uint64_t late_results=0,confirmed_frames=0,result_age_ns=0,max_result_age_ns=0;
+        double peak_sum=0;float peak_max=0;uint64_t peak_count=0;
         std::cout<<"Vehicle detector ready: NCNN "<<(use_yolo?"YOLOv5n":"NanoDet-Plus")<<", input="<<input_size
-            <<", threads="<<threads<<", rectangular="<<rectangular<<", threshold="<<threshold<<", birth="<<start_threshold<<", confirm=2, TTL=750ms\n"<<std::flush;
+            <<", threads="<<threads<<", rectangular="<<rectangular<<", threshold="<<threshold<<", birth="<<start_threshold<<", confirm=2"
+            <<(fast_confirm>0?" (1 if score>="+std::to_string(fast_confirm)+")":std::string())<<", TTL=750ms\n"<<std::flush;
         while(running) {
             pollfd pfd{fd,POLLIN,0};
             int ready=poll(&pfd,1,250);
@@ -112,8 +126,8 @@ int main(int argc,char **argv) {
                 if(n<0)break;
                 uint64_t now=now_ns();
                 if(n!=ssize_t(sizeof *incoming) || incoming->magic!=CAMERA_AI_MAGIC ||
-                    incoming->version!=CAMERA_AI_VERSION || incoming->width!=CAMERA_AI_WIDTH ||
-                    incoming->height!=CAMERA_AI_HEIGHT || incoming->captured_ns>now ||
+                    incoming->version!=CAMERA_AI_VERSION || !camera_frame_size_valid(incoming->width,incoming->height) ||
+                    incoming->captured_ns>now ||
                     now-incoming->captured_ns>300000000 || incoming->captured_ns<=previous ||
                     from.sun_path[0]==0 || from_length>sizeof from || from_length<=sizeof(sa_family_t)){expired++;continue;}
                 if(have)replaced++;
@@ -124,6 +138,7 @@ int main(int argc,char **argv) {
             auto bgr=decode_frame(*latest);
             uint64_t started=now_ns();auto detections=use_yolo?yolo->detect(bgr,threshold):nano->detect(bgr,threshold);uint64_t done=now_ns();
             processed++;sum_ns+=done-started;
+            if(use_yolo){peak_sum+=yolo->last_peak;peak_max=std::max(peak_max,yolo->last_peak);peak_count++;}
             CameraAIResults reply{};reply.magic=CAMERA_AI_MAGIC;reply.version=CAMERA_AI_VERSION;
             reply.sequence=latest->sequence;reply.captured_ns=latest->captured_ns;reply.completed_ns=done;
             if(done-latest->captured_ns<=CAMERA_AI_TTL_NS) {
@@ -150,6 +165,10 @@ int main(int argc,char **argv) {
                     CameraVehicle &vehicle=reply.vehicles[i];vehicle.category=categories[i];
                     auto &peak=peaks[vehicle.track];peak.score=std::max(peak.score,vehicle.confidence);peak.ns=reply.captured_ns;
                     if(vehicle.hits>=2 && peak.score>=start_threshold)reply.vehicles[confirmed++]=vehicle;
+                    else if(fast_confirm>0 && vehicle.confidence>=fast_confirm) {
+                        vehicle.hits=2; // the overlay draws hits>=2; the track table keeps its real count
+                        reply.vehicles[confirmed++]=vehicle;
+                    }
                 }
                 reply.count=confirmed;
                 found+=reply.count;
@@ -162,7 +181,11 @@ int main(int argc,char **argv) {
                     <<" vehicles="<<found<<" expired="<<expired<<" replaced="<<replaced
                     <<" late_results="<<late_results<<" confirmed_frames="<<confirmed_frames
                     <<" mean_result_age_ms="<<(processed>late_results?result_age_ns/1e6/(processed-late_results):0)
-                    <<" max_result_age_ms="<<(max_result_age_ns/1e6)<<"\n"<<std::flush;
+                    <<" max_result_age_ms="<<(max_result_age_ns/1e6);
+                // Best raw vehicle score in this interval, below the threshold too.
+                if(peak_count)std::cout<<" raw_peak_mean="<<peak_sum/peak_count<<" raw_peak_max="<<peak_max;
+                std::cout<<"\n"<<std::flush;
+                peak_sum=0;peak_max=0;peak_count=0;
                 last_log=done;
             }
         }

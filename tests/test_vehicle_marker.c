@@ -20,9 +20,16 @@ int main(void) {
     v.w=.5f;
     CameraMarker near=camera_vehicle_marker(&v,.1f,.4f);
     assert(near.height==36 && near.r==255 && near.g==0 && near.b==0);
-    v.category=7;neutral(camera_vehicle_marker(&v,.1f,.4f));
+    /* Trucks and buses are coloured like cars (the model often swaps them). */
+    v.category=7;CameraMarker truck=camera_vehicle_marker(&v,.1f,.4f);
+    assert(truck.r==255 && truck.g==0 && truck.height==36);
+    v.category=5;assert(camera_vehicle_marker(&v,.1f,.4f).r==255);
+    v.category=3;neutral(camera_vehicle_marker(&v,.1f,.4f)); /* motorcycle: width not comparable */
+    /* Left/right cuts change the apparent width: white. */
     v.category=2;v.x=0;neutral(camera_vehicle_marker(&v,.1f,.4f));
     v.x=.5f;neutral(camera_vehicle_marker(&v,.1f,.4f));
-    v.x=.1f;v.y=.8f;neutral(camera_vehicle_marker(&v,.1f,.4f));
-    puts("Marker scale: neutral fallback, size/color progression and clipped boxes passed");
+    /* Top/bottom cuts (band edges) keep the width: still coloured. */
+    v.x=.1f;v.y=.8f;assert(camera_vehicle_marker(&v,.1f,.4f).r==255);
+    v.y=0;v.h=.3f;assert(camera_vehicle_marker(&v,.1f,.4f).r==255);
+    puts("Marker scale: neutral fallback, size/color progression, classes and clipped boxes passed");
 }

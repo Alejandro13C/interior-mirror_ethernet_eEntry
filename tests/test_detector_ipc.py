@@ -35,12 +35,12 @@ with tempfile.TemporaryDirectory(prefix='rear-camera-detector-check-') as folder
         ids=[]
         for sequence in [1,2,3]:
             captured=time.monotonic_ns()-50000000
-            header=struct.pack('<IIIIQQII',0x56454831,2,416,250,sequence,captured,args.flags,0)
+            header=struct.pack('<IIIIQQII',0x56454831,3,416,250,sequence,captured,args.flags,0)
             client.sendto(header+pixels,folder+'/worker.sock')
             result=client.recv(4096)
             assert len(result)==680
             magic,version,count,reserved,seq,cap,done=struct.unpack_from('<IIIIQQQ',result)
-            assert magic==0x56454831 and version==2 and seq==sequence and cap==captured
+            assert magic==0x56454831 and version==3 and seq==sequence and cap==captured
             if sequence==1:
                 assert count==0, 'Unconfirmed single detection was published'
             else:
@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='rear-camera-detector-check-') as folder
             time.sleep(.05)
         assert ids[0]==ids[1], 'Identical frames lost track identity'
         client.settimeout(.5)
-        stale=struct.pack('<IIIIQQII',0x56454831,2,416,250,4,time.monotonic_ns()-2000000000,args.flags,0)
+        stale=struct.pack('<IIIIQQII',0x56454831,3,416,250,4,time.monotonic_ns()-2000000000,args.flags,0)
         client.sendto(stale+pixels,folder+'/worker.sock')
         try:
             client.recv(4096)

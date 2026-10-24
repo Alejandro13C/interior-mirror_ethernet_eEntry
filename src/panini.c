@@ -7,7 +7,9 @@ bool panini_valid(const PaniniConfig *c) {
     return c && isfinite(c->compression) && c->compression >= 0 && c->compression <= 2 &&
         isfinite(c->lens_fov) && c->lens_fov >= 90 && c->lens_fov <= 220 &&
         isfinite(c->view_fov) && c->view_fov >= 40 && c->view_fov <= 160 &&
-        isfinite(c->pitch) && c->pitch >= -45 && c->pitch <= 45;
+        isfinite(c->pitch) && c->pitch >= -45 && c->pitch <= 45 &&
+        isfinite(c->pixel_aspect) && (c->pixel_aspect == 0 ||
+        (c->pixel_aspect >= .5 && c->pixel_aspect <= 2));
 }
 
 bool panini_source(const PaniniConfig *c, int sw, int sh, int dw, int dh,
@@ -26,7 +28,10 @@ bool panini_source(const PaniniConfig *c, int sw, int sh, int dw, int dh,
     if (fabs(q) > 1) return false;
     double lon = atan2(u, a) + asin(q);
     double s = (d + 1) / (d + cos(lon));
-    double lat = atan(((dh - 1) / 2.0 - y) / (scale * s));
+    /* A display pixel `aspect` times wider than tall needs that many more rows per
+       unit of height for the picture to keep its proportions. */
+    double aspect = c->pixel_aspect > 0 ? c->pixel_aspect : 1;
+    double lat = atan(((dh - 1) / 2.0 - y) / (scale * s * aspect));
     double rx = cos(lat) * sin(lon);
     double ry = sin(lat), rz = cos(lat) * cos(lon);
     double p = c->pitch * RAD;
