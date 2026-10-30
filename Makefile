@@ -14,7 +14,17 @@ GST = gstreamer-1.0 gstreamer-app-1.0 gstreamer-video-1.0
 CAPTURE ?= captures/camera.pcap
 
 .PHONY: all test test-asan test-capture test-video test-detector test-ipc clean
-all: build/rear-camera
+all: build/rear-camera build/boot-logo
+
+build/boot-logo: tools/boot-logo.c | build
+	$(CC) $(CFLAGS) $(WARN) -D_DEFAULT_SOURCE $< -o $@ -ljpeg -lm
+
+build/test-boot-logo: tests/test_boot_logo.c tools/boot-logo.c | build
+	$(CC) $(CFLAGS) $(WARN) -D_DEFAULT_SOURCE $< -o $@ -ljpeg -lm
+
+.PHONY: test-boot-logo
+test-boot-logo: build/test-boot-logo
+	./build/test-boot-logo
 
 build:
 	mkdir -p $@
@@ -126,6 +136,7 @@ build/test-vehicle-marker-asan: tests/test_vehicle_marker.c src/vehicle_marker.h
 	$(CC) $(CFLAGS) $(WARN) -Isrc tests/test_vehicle_marker.c -o $@ -lm -latomic
 
 clean:
+	rm -f build/boot-logo build/test-boot-logo
 	rm -f build/*-asan build/decoder-latency build/test-h264-sps
 	rm -f build/test-vehicle-marker build/test-stale-frame
 	rm -f build/rear-camera build/test-rtp build/test-panini build/test-video-panini build/render-views build/benchmark-panini build/vehicle-detector build/benchmark-detector build/benchmark-yolov5 build/vehicle_tracking.o build/test-vehicles build/test-vehicle-overlay build/test-detector-boxes build/liboffline-tracking.so

@@ -16,7 +16,7 @@ The receiver supports the observed camera encapsulation: VLAN 2, IPv6 multicast 
 On the Pi:
 
 ```bash
-sudo apt install build-essential pkg-config kbd \
+sudo apt install build-essential pkg-config kbd libjpeg-dev \
   libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
   gstreamer1.0-tools gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-libav
@@ -29,6 +29,8 @@ Edit the user, group and project paths in [rear-camera.service](systemd/rear-cam
 ```bash
 sudo cp systemd/rear-camera.service /etc/systemd/system/
 sudo install -D -o root -g root -m 0755 display-console.sh /usr/local/lib/rear-camera/display-console.sh
+sudo install -o root -g root -m 0755 build/boot-logo /usr/local/lib/rear-camera/boot-logo
+sudo install -o root -g root -m 0644 logo/logo-renault-sport-invertido.jpg /usr/local/lib/rear-camera/boot-logo.jpg
 sudo cp systemd/rear-camera.defaults /etc/default/rear-camera
 sudo cp systemd/90-rear-camera-net.rules /etc/udev/rules.d/ && sudo udevadm trigger --sysname-match=eth0
 sudo systemctl daemon-reload
@@ -36,6 +38,15 @@ sudo systemctl enable --now rear-camera
 ```
 
 The service supplies the network capabilities needed for capture. Run one hardware video player at a time.
+
+At service startup (including boot and restarts), the inverted Renault Sport logo
+(white on black, `logo/logo-renault-sport-invertido.jpg`) is drawn
+once on `/dev/fb0`, centred with its proportions preserved using `CAMERA_DISPLAY_PAR`
+and `CAMERA_ROTATION` (0/180). Video replaces it as soon as playback begins; there is
+a two-second hold before video starts, with no background viewer. This starts with the service, not in
+the firmware boot screen. If fbdev or the logo is unavailable, the console retains
+`SIN VIDEO`. Stopping the service also shows `SIN VIDEO`. Install `libjpeg-dev`
+before deploying this version. Validate the splash-to-video handoff on the Pi.
 
 ### Read-only microSD
 

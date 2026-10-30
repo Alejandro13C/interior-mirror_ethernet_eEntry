@@ -21,6 +21,10 @@ cp -a "$live/build/rear-camera" "$backup/"
 [[ -n ${NCNN:-} && -d $live/build/ncnn-install ]] && tar czf "$backup/ncnn-install.tgz" -C "$live/build" ncnn-install
 cp -a /etc/systemd/system/rear-camera.service /etc/systemd/system/rear-camera-detector.service "$backup/"
 [[ -e /etc/udev/rules.d/90-rear-camera-net.rules ]] && cp -a /etc/udev/rules.d/90-rear-camera-net.rules "$backup/"
+mkdir -p "$backup/console"
+for asset in display-console.sh boot-logo boot-logo.jpg; do
+    [[ ! -e /usr/local/lib/rear-camera/$asset ]] || cp -a "/usr/local/lib/rear-camera/$asset" "$backup/console/"
+done
 echo "Backup: $backup"
 
 replace() { cp -a "$1" "$2.deploy" && mv -f "$2.deploy" "$2"; } # running binaries: rename over them
@@ -35,6 +39,10 @@ rollback() {
         tar xzf "$backup/ncnn-install.tgz" -C "$live/build"
     fi
     cp -a "$backup/rear-camera.service" "$backup/rear-camera-detector.service" /etc/systemd/system/
+    for asset in display-console.sh boot-logo boot-logo.jpg; do
+        rm -f "/usr/local/lib/rear-camera/$asset"
+        [[ ! -e $backup/console/$asset ]] || cp -a "$backup/console/$asset" /usr/local/lib/rear-camera/
+    done
     rm -f /etc/udev/rules.d/90-rear-camera-net.rules
     [[ -e $backup/90-rear-camera-net.rules ]] && cp -a "$backup/90-rear-camera-net.rules" /etc/udev/rules.d/
     systemctl daemon-reload
@@ -46,12 +54,14 @@ trap rollback ERR
 rsync -a --delete --exclude=/build/ --exclude='/models/*.bin' --exclude='/models/*.onnx' \
     --chown="$user:$group" "$stage/" "$live/"
 cd "$live"
-sudo -u "$user" make -B build/rear-camera >/dev/null
+sudo -u "$user" make -B build/rear-camera build/boot-logo >/dev/null
 if [[ -n ${NCNN:-} ]]; then
     rsync -a --delete --chown="$user:$group" "$NCNN/" "$live/build/ncnn-install/"
     sudo -u "$user" make -B build/vehicle-detector >/dev/null
 fi
 install -D -o root -g root -m 0755 display-console.sh /usr/local/lib/rear-camera/display-console.sh
+install -o root -g root -m 0755 build/boot-logo /usr/local/lib/rear-camera/boot-logo
+install -o root -g root -m 0644 logo/logo-renault-sport-invertido.jpg /usr/local/lib/rear-camera/boot-logo.jpg
 install -m 0644 systemd/rear-camera.service systemd/rear-camera-detector.service /etc/systemd/system/
 install -m 0644 systemd/90-rear-camera-net.rules /etc/udev/rules.d/
 udevadm control --reload

@@ -24,7 +24,7 @@ EnvironmentFile=-/etc/default/rear-camera-markers
 # '-': a cosmetic console failure must not prevent the video from starting.
 ExecStartPre=-+/usr/bin/bash /usr/local/lib/rear-camera/display-console.sh
 ExecStart=/usr/bin/bash /home/alejandro/Rear_camera/run-pi.sh
-ExecStopPost=-+/usr/bin/bash /usr/local/lib/rear-camera/display-console.sh
+ExecStopPost=-+/usr/bin/bash /usr/local/lib/rear-camera/display-console.sh stop
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 Restart=always
